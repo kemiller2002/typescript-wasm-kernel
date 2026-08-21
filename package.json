@@ -1,0 +1,70 @@
+{
+  "name": "@echelon-foundry/typescript-wasm-kernel",
+  "version": "0.2.1",
+  "description": "A dependency-free TypeScript browser kernel with a stable engine boundary for WebAssembly applications.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./protocol": {
+      "types": "./dist/protocol.d.ts",
+      "import": "./dist/protocol.js"
+    },
+    "./kernel": {
+      "types": "./dist/kernel/browser-kernel.d.ts",
+      "import": "./dist/kernel/browser-kernel.js"
+    },
+    "./reference-engine": {
+      "types": "./dist/engine/transport.d.ts",
+      "import": "./dist/engine/transport.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "architecture.yaml"
+  ],
+  "sideEffects": false,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kemiller2002/typescript-wasm-kernel.git"
+  },
+  "bugs": {
+    "url": "https://github.com/kemiller2002/typescript-wasm-kernel/issues"
+  },
+  "homepage": "https://github.com/kemiller2002/typescript-wasm-kernel#readme",
+  "keywords": [
+    "browser-kernel",
+    "typescript",
+    "webassembly",
+    "wasm",
+    "functional-core"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build": "tsc -p tsconfig.json",
+    "check:architecture": "node --experimental-strip-types scripts/check-architecture.ts",
+    "pretest": "npm run build",
+    "test": "npm run check:architecture && node --experimental-strip-types --test test/*.test.ts",
+    "check": "npm test",
+    "prepack": "npm run clean && npm run check"
+  },
+  "devDependencies": {
+    "@types/jsdom": "^30.0.0",
+    "jsdom": "^29.1.1",
+    "typescript": "^5.9.2"
+  }
+}

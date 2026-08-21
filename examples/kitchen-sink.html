@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Bridge kitchen sink</title>
+    <link rel="stylesheet" href="./kitchen-sink.css">
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Bridge kitchen sink</h1>
+        <p>
+          Every primitive the kernel understands, exercised against a small
+          hand-written <code>EngineTransport</code> (<a href="./kitchen-sink.js">kitchen-sink.js</a>) —
+          no domain logic in the bridge, only <code>data-*</code> bindings.
+          See <a href="../docs/USAGE.md">docs/USAGE.md</a> for the reference.
+        </p>
+      </header>
+
+      <section>
+        <h2>data-event / data-text — command dispatch, projection</h2>
+        <p class="note"><code>data-event="increment"</code> on a plain button, defaulting to its native <code>click</code> trigger.</p>
+        <div class="row">
+          <button data-event="increment">Increment</button>
+          <span>Count: <strong data-text="counter"></strong></span>
+        </div>
+      </section>
+
+      <section>
+        <h2>data-if — conditional mount/unmount</h2>
+        <p class="note"><code>data-bind-aria-expanded</code> reflects state onto the toggle button; the panel is a real <code>&lt;template&gt;</code>, only in the DOM while <code>panelOpen</code> is true.</p>
+        <div class="row">
+          <button data-event="toggle" data-bind-aria-expanded="panelOpen">Toggle panel</button>
+        </div>
+        <template data-if="panelOpen">
+          <p>This paragraph does not exist in the DOM until <code>panelOpen</code> is true — inspect the element tree.</p>
+        </template>
+      </section>
+
+      <section>
+        <h2>data-on override — search-as-you-type</h2>
+        <p class="note">Default trigger for <code>&lt;input&gt;</code> is <code>change</code> (fires on blur); <code>data-on="input"</code> overrides it to fire on every keystroke.</p>
+        <input data-event="search" data-on="input" placeholder="Type to dispatch on every keystroke" autocomplete="off">
+        <p class="note">Last dispatched value: <strong data-text="query"></strong></p>
+      </section>
+
+      <section>
+        <h2>data-each — keyed list, add / remove / reorder</h2>
+        <p class="note">
+          Clicking a row dispatches <code>selectItem</code> via the default <code>click</code> trigger on a plain <code>&lt;li&gt;</code>
+          (no tag-specific mapping needed); the nested Remove button dispatches its own event. Both carry the row's key.
+          Reordering moves the existing DOM nodes — open devtools and watch the elements, not just the text, move.
+        </p>
+        <div class="row">
+          <button data-event="addItem">Add item</button>
+          <button data-event="shuffle">Reverse order</button>
+        </div>
+        <ul>
+          <template data-each="items" data-key="id">
+            <li data-event="selectItem" data-bind-aria-selected="selected">
+              <span data-text="label"></span>
+              <button data-event="removeItem">Remove</button>
+            </li>
+          </template>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Effect execution &amp; every EffectOutcome</h2>
+        <p class="note">
+          Each button issues a real <code>Http</code> effect through the kernel; this page installs a fake
+          <code>fetch</code> so no server is required — the kernel's own fetch/timeout/abort/classify logic is unmodified.
+        </p>
+        <div class="row">
+          <button data-event="triggerSuccess">Success</button>
+          <button data-event="triggerNetworkFailure">Failure (network)</button>
+          <button data-event="triggerInvalidResponse">Failure (invalid-response)</button>
+          <button data-event="triggerTimeout">OutcomeUnknown (timeout, 800ms)</button>
+          <button data-event="triggerCancellable">Start cancellable (5s)</button>
+          <button data-event="cancelEffect">Cancel it</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>Error boundary</h2>
+        <p class="note">
+          Both failures are caught at the kernel's single chokepoint and reported to diagnostics below —
+          neither crashes the page or leaves other bindings unable to update on the next good round-trip.
+        </p>
+        <div class="row">
+          <button data-event="triggerBrokenProjection">Trigger a malformed projection</button>
+          <button data-event="breakTransport">Make the transport start throwing</button>
+        </div>
+        <p class="note">Held hostage by the broken-projection demo above (stays stale once triggered): <strong data-text="deliberatelyMissing"></strong></p>
+      </section>
+
+      <section>
+        <h2>Engine event log <span class="note">(data-each again, newest first)</span></h2>
+        <ul>
+          <template data-each="log" data-key="id">
+            <li><span data-text="text"></span></li>
+          </template>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Diagnostics <span class="note">(bridge mechanism only — never engine/view state)</span></h2>
+        <p class="note">Written directly by the injected <code>DiagnosticsSink</code>, outside the kernel's own view pipeline — on purpose, since diagnostics are not domain meaning.</p>
+        <pre id="diagnostics">(nothing reported yet)</pre>
+      </section>
+    </main>
+    <script type="module" src="./kitchen-sink.js"></script>
+  </body>
+</html>

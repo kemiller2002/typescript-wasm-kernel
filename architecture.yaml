@@ -1,0 +1,17 @@
+architecture:
+  authoritative_state:
+    owner: engine/domain
+    mutation: transitions_only
+  browser_interop:
+    allowed_modules: [kernel]
+    forbidden_modules: [engine]
+  dynamic_types:
+    allowed_modules: [kernel/boundary]
+  effects:
+    representation: explicit
+    external_outcomes: [success, failure, outcome_unknown]
+  capabilities:
+    ambient_authority: forbidden
+  state:
+    string_discriminators: forbidden
+    exhaustive_matching: required

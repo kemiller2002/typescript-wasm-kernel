@@ -1,0 +1,17 @@
+:root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+body { margin: 0; padding: 2rem 1rem 6rem; display: grid; justify-items: center; }
+main { width: min(40rem, 100%); display: grid; gap: 2.5rem; }
+section { display: grid; gap: .6rem; border: 1px solid color-mix(in srgb, currentColor 20%, transparent); border-radius: .6rem; padding: 1rem 1.25rem; }
+section > h2 { margin: 0 0 .25rem; font-size: 1rem; }
+section > p.note { margin: 0; opacity: .7; font-size: .85rem; }
+code { background: color-mix(in srgb, currentColor 12%, transparent); border-radius: .3rem; padding: .1rem .35rem; }
+button, input { font: inherit; padding: .5rem .7rem; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: .6; }
+button:hover:not(:disabled) { filter: brightness(1.08); }
+:focus-visible { outline: .2rem solid Highlight; outline-offset: .15rem; }
+.row { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+ul { list-style: none; margin: 0; padding: 0; display: grid; gap: .4rem; }
+li { display: flex; justify-content: space-between; align-items: center; gap: .5rem; padding: .4rem .6rem; border: 1px solid color-mix(in srgb, currentColor 15%, transparent); border-radius: .4rem; cursor: pointer; }
+li[aria-selected="true"] { outline: .15rem solid Highlight; }
+pre { margin: 0; max-height: 10rem; overflow: auto; font-size: .8rem; background: color-mix(in srgb, currentColor 8%, transparent); padding: .6rem; border-radius: .4rem; }
