@@ -1,4 +1,4 @@
-import { PROTOCOL_VERSION, type BrowserToEngineMessage, type CorrelationId, type EffectOutcome, type EffectRequest, type EngineToBrowserMessage, type EngineTransport, type SemanticEvent, type ViewItem, type ViewState, type ViewValue } from "../protocol.js";
+import { PROTOCOL_VERSION, type BrowserToEngineMessage, type CorrelationId, type EffectOutcome, type EffectRequest, type EffectResult, type EngineToBrowserMessage, type EngineTransport, type HttpEffectRequest, type SemanticEvent, type StorageEffectRequest, type StorageOutcome, type ViewItem, type ViewState, type ViewValue } from "../protocol.js";
 import { noopDiagnostics, type DiagnosticsSink } from "./diagnostics.js";
 
 // Exceptions to the "click" default: element types whose most natural
@@ -98,7 +98,7 @@ export class BrowserKernel {
       return;
     }
     this.#bindElement(this.document.body, this.#root, undefined);
-    await this.#send({ kind: "Initialize", protocolVersion: PROTOCOL_VERSION, capabilities: ["Http"] });
+    await this.#send({ kind: "Initialize", protocolVersion: PROTOCOL_VERSION, capabilities: ["Http", "Storage"] });
   }
 
   // Binds only root's descendants, not root itself — the recursive step
@@ -241,15 +241,20 @@ export class BrowserKernel {
   }
 
   async #executeEffect(effect: EffectRequest): Promise<void> {
+    const started = performance.now();
+    const result = effect.kind === "Http" ? await this.#executeHttp(effect) : this.#executeStorage(effect);
+    this.#diagnostics.report({ kind: "EffectTiming", correlationId: effect.correlationId, durationMs: performance.now() - started });
+    await this.#send({ kind: "EffectResult", result });
+  }
+
+  async #executeHttp(effect: HttpEffectRequest): Promise<EffectResult> {
     const controller = new AbortController();
     this.#controllers.set(effect.correlationId, controller);
     const timer = window.setTimeout(() => controller.abort("timeout"), effect.timeoutMs);
-    const started = performance.now();
     const outcome = await this.#runHttp(effect, controller);
-    this.#diagnostics.report({ kind: "EffectTiming", correlationId: effect.correlationId, durationMs: performance.now() - started });
     window.clearTimeout(timer);
     this.#controllers.delete(effect.correlationId);
-    await this.#send({ kind: "EffectResult", result: { kind: "HttpResult", correlationId: effect.correlationId, outcome } });
+    return { kind: "HttpResult", correlationId: effect.correlationId, outcome };
   }
 
   // The kernel classifies transport-level outcomes only — it never decides
@@ -257,9 +262,14 @@ export class BrowserKernel {
   // A timeout is always reported as OutcomeUnknown, never a confident
   // Failure: fetch() may already have sent the request before the abort
   // fires, so the kernel cannot claim the effect did not occur.
-  async #runHttp(effect: EffectRequest, controller: AbortController): Promise<EffectOutcome> {
+  async #runHttp(effect: HttpEffectRequest, controller: AbortController): Promise<EffectOutcome> {
     try {
-      const response = await fetch(effect.url, { method: effect.method, signal: controller.signal, headers: { accept: "application/json" } });
+      const response = await fetch(effect.url, {
+        method: effect.method,
+        signal: controller.signal,
+        headers: { accept: "application/json", ...effect.headers },
+        ...(effect.body !== undefined ? { body: effect.body } : {}),
+      });
       try {
         return { kind: "Success", status: response.status, body: await response.json() as unknown };
       } catch {
@@ -275,4 +285,29 @@ export class BrowserKernel {
     if (controller.signal.reason === "timeout") return { kind: "OutcomeUnknown", reason: "timeout-after-dispatch" };
     return { kind: "Failure", reason: controller.signal.aborted ? "aborted" : "network" };
   }
+
+  // Synchronous by nature (localStorage has no async API), so unlike Http
+  // there is no AbortController to register, no timeout, and cancelling a
+  // Storage effect is a structural no-op — by the time a later response
+  // could name its correlationId, the operation has already completed and
+  // its result already sent.
+  #executeStorage(effect: StorageEffectRequest): EffectResult {
+    return { kind: "StorageResult", correlationId: effect.correlationId, outcome: runStorage(effect) };
+  }
+}
+
+function runStorage(effect: StorageEffectRequest): StorageOutcome {
+  try {
+    switch (effect.operation) {
+      case "get": return { kind: "Success", value: window.localStorage.getItem(effect.key) };
+      case "set": window.localStorage.setItem(effect.key, effect.value); return { kind: "Success", value: null };
+      case "remove": window.localStorage.removeItem(effect.key); return { kind: "Success", value: null };
+    }
+  } catch (error) {
+    return { kind: "Failure", reason: isQuotaExceeded(error) ? "quota-exceeded" : "unavailable" };
+  }
+}
+
+function isQuotaExceeded(error: unknown): boolean {
+  return error instanceof DOMException && (error.name === "QuotaExceededError" || error.code === 22 || error.code === 1014);
 }

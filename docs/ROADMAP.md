@@ -19,7 +19,7 @@ Browser APIs + DOM
 ```
 
 The bridge (`src/kernel/browser-kernel.ts`) is the only layer permitted to
-touch `document`, `window`, or `fetch`. The engine (`src/engine/`) never sees
+touch `document`, `window`, `fetch`, or `localStorage`. The engine (`src/engine/`) never sees
 a DOM node, an element id, or a browser API — only `SemanticEvent`,
 `ViewState`, `EffectRequest`, and `EffectResult` (`src/protocol.ts`), each a
 plain, JSON-serializable value.
@@ -45,7 +45,7 @@ plain, JSON-serializable value.
 | 1 | WASM lifecycle — load, initialize, version-check | ⚠️ Partial | `BrowserKernel.start()` dispatches `Initialize` with `PROTOCOL_VERSION`; `ReferenceEngine.handle()` rejects a mismatched version. "Expose the kernel instance" deliberately not done — no global handle, matching `architecture.yaml`'s `ambient_authority: forbidden`. | `kernel.test.ts`: "start() dispatches Initialize…", "a transport whose start() rejects…" |
 | 2 | Command dispatch | ✅ | `#bindEvent` / `#fire` | `kernel.test.ts` event-dispatch tests |
 | 3 | Projection rendering | ✅ | `#applyScope`, `#applyIf`, `#applyEach` | `kernel.test.ts` projection tests |
-| 4 | Effect execution | ⚠️ Partial | HTTP only (`#runHttp`). Storage/file/clipboard/navigation/auth adapters: 🧊 deferred, see below. | `kernel.test.ts` effect-execution tests |
+| 4 | Effect execution | ⚠️ Partial | Http (`#runHttp`, any of `GET`/`PUT`/`POST`/`PATCH`/`DELETE`, caller headers merged over the default, opaque pre-serialized body) and Storage (`#executeStorage`/`runStorage`, `localStorage`-backed). File/clipboard/navigation/auth adapters: 🧊 deferred, see below. | `kernel.test.ts` effect-execution tests |
 | 5 | Effect result return — Succeeded/Failed/Cancelled/OutcomeUnknown | ✅ | `EffectOutcome` in `protocol.ts` now carries all four (`Success`, `Failure`, `Cancelled`, `OutcomeUnknown`); `#classifyAbort` in the kernel classifies transport-level outcomes only, never business meaning | `kernel.test.ts`: Success/Failure(network)/Failure(invalid-response)/OutcomeUnknown/Cancelled — one test each |
 | 6 | DOM event wiring — click/input/change/submit/keyboard/focus | ✅ | `TRIGGER_BY_TAG` maps the exceptions (`form`→submit, `input`/`select`/`textarea`→change); everything else defaults to `click`; `data-on` overrides to any DOM event type, including keyboard/focus events — no special-casing needed since the trigger is data-driven | `kernel.test.ts`: default triggers + `data-on` override |
 | 7 | Form value extraction | ✅ | `readValue()` | covered by event-dispatch tests |
@@ -59,8 +59,8 @@ plain, JSON-serializable value.
 | 15 | Accessibility plumbing | ⚠️ Partial | `aria-live` regions work today because they're native HTML the kernel already updates via `data-text`/`textContent` (see `index.html`'s status paragraph) — no special kernel code needed. Focus restoration (e.g. after a keyed list item is removed) is 🧊 deferred, no demonstrated need yet. | — |
 | 16 | Scheduling primitives — rAF/timers/idle callbacks | 🧊 Deferred | No feature currently needs debounced/scheduled semantic events; the coalesce/debounce allowance in zero-authoritative spec §15 is explicitly evidence-driven, not default. | — |
 | 17 | File/browser API adapters | 🧊 Deferred | — | — |
-| 18 | Storage adapters | 🧊 Deferred | — | — |
-| 19 | Network adapter | ✅ | `#runHttp` — classifies transport-level outcomes only (`Success`/`Failure`/`Cancelled`/`OutcomeUnknown`), never interprets a status code or decoded body as domain truth (per responsibility-spec §17: "TypeScript must not interpret business meaning") | `kernel.test.ts` effect-execution tests |
+| 18 | Storage adapters | ✅ (`localStorage` only) | `StorageEffectRequest`/`StorageOutcome` in `protocol.ts`; `#executeStorage`/`runStorage` in the kernel. `get`/`set`/`remove` only, no `IndexedDB`/`Cache API` — build those when a feature demonstrates the need, same 🧊 policy as everything else here. No `OutcomeUnknown`: a single `localStorage` call is effectively atomic, so unlike Http there's no meaningful "dispatched but uncertain" state; failures classify as `unavailable` or `quota-exceeded`. | `kernel.test.ts`: set→get round-trip, remove→get reports `null`, quota-exceeded classification, stale-cancellation-is-a-no-op |
+| 19 | Network adapter | ✅ | `#runHttp` — classifies transport-level outcomes only (`Success`/`Failure`/`Cancelled`/`OutcomeUnknown`), never interprets a status code or decoded body as domain truth (per responsibility-spec §17: "TypeScript must not interpret business meaning"). Extended beyond `GET` to any of `PUT`/`POST`/`PATCH`/`DELETE` with caller-supplied headers (merged over the kernel's own `accept` default) and an opaque pre-serialized body — added for a real consumer's GitHub Contents API write (`PUT` + `Authorization` header + JSON body). Headers/body are never surfaced in a `DiagnosticEvent`. | `kernel.test.ts`: PUT with headers+body reaches `fetch()` correctly, GET omits body entirely, diagnostics never contain header/body content |
 
 ## Cross-cutting: cancellation
 
@@ -73,6 +73,16 @@ and reports `Cancelled` back through the ordinary `EffectResult` path — the
 engine handles it as evidence, the same as any other outcome, not as a
 special control-flow case. See "Cancelling an in-flight effect" in
 [USAGE.md](USAGE.md).
+
+## Extension history
+
+Item 4/18/19's Storage effect and Http `method`/`headers`/`body` extension
+were added in response to a real, filed extension request —
+`input-document/time-entry-state-machine-extension-request.md` — from an
+actual consumer application blocked on both, not built speculatively. That
+document is this repo's own required evidence trail for building ahead of
+the reference feature's needs (see the 🧊 status legend above); it's kept in
+place after the fact as the record of *why*, not deleted once implemented.
 
 ## SHOULD NOT CONTAIN (invariants)
 
@@ -101,11 +111,14 @@ silently deleted.
 - `test/domain.test.ts` — engine-level: state/transition legality, stale
   evidence rejection, the generic event→command mapping's closed vocabulary.
 - `test/kernel.test.ts` — bridge-level, against a real DOM (`jsdom`, dev
-  dependency only — see the file's header comment for why a hand-rolled DOM
-  shim was rejected in favor of a mature, standards-compliant one). 32 tests
-  covering lifecycle, command dispatch, projection (text/attr/if/each),
-  effect execution and all four `EffectOutcome` variants, the error
-  boundary, and diagnostics.
+  dependency only — see `test/dom-helpers.ts`'s header comment for why a
+  hand-rolled DOM shim was rejected in favor of a mature, standards-compliant
+  one). 39 tests covering lifecycle, command dispatch, projection
+  (text/attr/if/each), effect execution and all four `EffectOutcome`
+  variants, the extended Http effect (method/headers/body reaching `fetch()`
+  correctly, headers/body never reaching diagnostics), the Storage effect
+  (get/set/remove round-trip, quota-exceeded classification, stale
+  cancellation as a no-op), the error boundary, and diagnostics.
 - `scripts/check-architecture.ts` (run as part of `npm test`) — the one
   mechanically enforced invariant: no browser dependency or dynamic-type
   escape inside `src/engine/**`.

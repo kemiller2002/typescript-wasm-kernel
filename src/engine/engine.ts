@@ -28,9 +28,17 @@ export class ReferenceEngine {
       if (message.protocolVersion !== PROTOCOL_VERSION) throw new Error("Unsupported protocol version");
       return { view: project(this.#state), effects: [], cancellations: [] };
     }
-    const command: Command = message.kind === "Event"
-      ? eventToCommand(message.event, this.#nextCorrelationId())
-      : { kind: "RecordAvailability", correlationId: message.result.correlationId, outcome: message.result.outcome };
+    let command: Command;
+    if (message.kind === "Event") {
+      command = eventToCommand(message.event, this.#nextCorrelationId());
+    } else if (message.result.kind === "HttpResult") {
+      command = { kind: "RecordAvailability", correlationId: message.result.correlationId, outcome: message.result.outcome };
+    } else {
+      // This reference domain never requests a Storage effect; a
+      // StorageResult reaching it would be a protocol contract violation,
+      // not a domain outcome to represent as state.
+      throw new Error("Unexpected StorageResult: this domain never requests a Storage effect");
+    }
     const result = transition(this.#state, command);
     this.#state = result.state;
     return { view: project(this.#state), effects: result.accepted ? result.effects : [], cancellations: [] };

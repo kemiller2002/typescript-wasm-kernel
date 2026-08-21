@@ -83,6 +83,37 @@
       </section>
 
       <section>
+        <h2>Extended Http effect — method, headers, body</h2>
+        <p class="note">
+          The original <code>Http</code> effect only supported <code>method: "GET"</code> with no headers or body — added for
+          a real consumer needing <code>PUT /repos/.../contents/{path}</code>-style requests (GitHub Contents API) with an
+          <code>Authorization</code> header and a JSON body. This button issues a real <code>PUT</code> with both; the fake
+          <code>fetch</code> echoes back exactly what it received, and the diagnostics log below never shows the header —
+          see the note in <a href="../docs/USAGE.md">docs/USAGE.md</a> on why.
+        </p>
+        <div class="row">
+          <button data-event="triggerPut">PUT with headers &amp; body</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>Storage effect — get / set / remove</h2>
+        <p class="note">
+          Goes through the same effect pipeline as Http, against real <code>localStorage</code> — the engine never touches
+          a browser API directly, only through this explicit effect kind. Reload this page and click Get to see the value
+          persisted from your last visit.
+        </p>
+        <div class="row">
+          <input data-event="storageDraft" data-on="input" placeholder="Value to store" autocomplete="off">
+          <button data-event="storageSet">Set</button>
+          <button data-event="storageGet">Get</button>
+          <button data-event="storageRemove">Remove</button>
+          <button data-event="storageQuotaDemo">Simulate quota exceeded</button>
+        </div>
+        <p class="note">Stored value: <strong data-text="storedValue"></strong></p>
+      </section>
+
+      <section>
         <h2>Error boundary</h2>
         <p class="note">
           Both failures are caught at the kernel's single chokepoint and reported to diagnostics below —

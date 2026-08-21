@@ -12,20 +12,29 @@ export type SemanticEvent = {
   readonly value?: string;
 };
 
+// The outcome shape for Http effects specifically — Storage has its own,
+// StorageOutcome, since a synchronous local operation has different failure
+// modes than a network request (no meaningful "dispatched but uncertain").
 export type EffectOutcome =
   | { readonly kind: "Success"; readonly status: number; readonly body: unknown }
   | { readonly kind: "Failure"; readonly reason: "network" | "aborted" | "invalid-response" }
   | { readonly kind: "Cancelled" }
   | { readonly kind: "OutcomeUnknown"; readonly reason: "timeout-after-dispatch" };
 
-export type EffectResult = {
-  readonly kind: "HttpResult";
-  readonly correlationId: CorrelationId;
-  readonly outcome: EffectOutcome;
-};
+// `value` carries the read value for "get" (null means the key was absent —
+// that is a normal outcome, not a failure); for "set"/"remove" it is null
+// and unused. A single localStorage call is effectively atomic, so unlike
+// Http there is no meaningful "dispatched but uncertain" case.
+export type StorageOutcome =
+  | { readonly kind: "Success"; readonly value: string | null }
+  | { readonly kind: "Failure"; readonly reason: "unavailable" | "quota-exceeded" };
+
+export type EffectResult =
+  | { readonly kind: "HttpResult"; readonly correlationId: CorrelationId; readonly outcome: EffectOutcome }
+  | { readonly kind: "StorageResult"; readonly correlationId: CorrelationId; readonly outcome: StorageOutcome };
 
 export type BrowserToEngineMessage =
-  | { readonly kind: "Initialize"; readonly protocolVersion: typeof PROTOCOL_VERSION; readonly capabilities: readonly ["Http"] }
+  | { readonly kind: "Initialize"; readonly protocolVersion: typeof PROTOCOL_VERSION; readonly capabilities: readonly ["Http", "Storage"] }
   | { readonly kind: "Event"; readonly event: SemanticEvent }
   | { readonly kind: "EffectResult"; readonly result: EffectResult };
 
@@ -38,13 +47,27 @@ export type ViewItem = { readonly [field: string]: ViewPrimitive };
 export type ViewValue = ViewPrimitive | readonly ViewItem[];
 export type ViewState = { readonly [key: string]: ViewValue };
 
-export type EffectRequest = {
+export type HttpMethod = "GET" | "PUT" | "POST" | "PATCH" | "DELETE";
+
+export type HttpEffectRequest = {
   readonly kind: "Http";
   readonly correlationId: CorrelationId;
-  readonly method: "GET";
+  readonly method: HttpMethod;
   readonly url: string;
+  // Never surface these in a DiagnosticEvent — a header commonly carries a
+  // credential (see docs/USAGE.md's secrets-handling note), and the kernel
+  // must not become a place that logs one.
+  readonly headers?: Readonly<Record<string, string>>;
+  readonly body?: string; // pre-serialized by the engine; the kernel never interprets it
   readonly timeoutMs: number;
 };
+
+export type StorageEffectRequest =
+  | { readonly kind: "Storage"; readonly correlationId: CorrelationId; readonly operation: "get"; readonly key: string }
+  | { readonly kind: "Storage"; readonly correlationId: CorrelationId; readonly operation: "set"; readonly key: string; readonly value: string }
+  | { readonly kind: "Storage"; readonly correlationId: CorrelationId; readonly operation: "remove"; readonly key: string };
+
+export type EffectRequest = HttpEffectRequest | StorageEffectRequest;
 
 export type EngineToBrowserMessage = {
   readonly view: ViewState;

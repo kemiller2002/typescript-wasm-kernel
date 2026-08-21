@@ -178,6 +178,69 @@ on any later response. The kernel aborts the in-flight request and reports
 same path a real `Failure` or `OutcomeUnknown` takes, so the engine handles
 it as ordinary evidence, not a special case.
 
+## The Http effect: method, headers, body
+
+Beyond the plain `GET` shown above, `HttpEffectRequest` supports any of
+`"GET" | "PUT" | "POST" | "PATCH" | "DELETE"`, optional `headers`, and an
+optional pre-serialized `body` string — added for a real consumer needing
+`PUT /repos/{owner}/{repo}/contents/{path}`-style requests (GitHub Contents
+API) with an `Authorization` header and a JSON body:
+
+```ts
+const effect: EffectRequest = {
+  kind: "Http",
+  correlationId,
+  method: "PUT",
+  url: `/repos/${owner}/${repo}/contents/${path}`,
+  headers: { authorization: `token ${token}` },
+  body: JSON.stringify({ message: "update", content, sha }),
+  timeoutMs: 5000,
+};
+```
+
+The kernel merges your `headers` over its own default (`accept:
+application/json`; yours win on conflict), passes `body` straight to
+`fetch()` uninterpreted, and otherwise behaves exactly as before — it still
+only classifies `Success`/`Failure`/`Cancelled`/`OutcomeUnknown` at the
+transport level, never a status code or response body as domain meaning.
+
+**Secrets**: a header commonly carries a credential. The kernel never
+includes `headers` or `body` in any `DiagnosticEvent` — only
+`correlationId` and timing — and this is enforced by test
+(`test/kernel.test.ts`: "a diagnostics sink never receives request headers
+or body"). If you write your own `DiagnosticsSink`, keep that invariant:
+don't log the raw `EffectRequest`/`EffectResult` objects wholesale.
+
+## The Storage effect: get / set / remove
+
+A `StorageEffectRequest` lets the engine read/write `localStorage` without
+ever touching a browser API directly — same rule as everything else the
+kernel does: WASM decides, the bridge executes.
+
+```ts
+type StorageEffectRequest =
+  | { kind: "Storage"; correlationId; operation: "get"; key: string }
+  | { kind: "Storage"; correlationId; operation: "set"; key: string; value: string }
+  | { kind: "Storage"; correlationId; operation: "remove"; key: string };
+```
+
+The result comes back as `EffectResult { kind: "StorageResult", outcome }`,
+where `outcome` is:
+
+```ts
+type StorageOutcome =
+  | { kind: "Success"; value: string | null } // value is the read value for "get" (null = absent); null/unused for "set"/"remove"
+  | { kind: "Failure"; reason: "unavailable" | "quota-exceeded" };
+```
+
+Unlike Http, there's no `OutcomeUnknown` — a single `localStorage` call is
+effectively atomic, so there's no meaningful "dispatched but uncertain"
+state the way a network request has. There's also no cancellation-in-flight
+concern: the operation completes synchronously within the same effect
+execution, so by the time any later response could name its
+`correlationId` in `cancellations`, it has already completed and its result
+already sent — naming it there is a harmless no-op, not an error.
+
 ## Known gaps
 
 - `data-bind-value` writes are unconditional on the value's presence in the
@@ -187,6 +250,6 @@ it as ordinary evidence, not a special case.
 - Checkbox/radio state is read/written as `.value`, not `.checked`; binding a
   boolean control's checked state requires `data-bind-checked` explicitly and
   reading it back isn't wired into `data-event` yet.
-- Browser capability commands beyond HTTP (focus, clipboard, navigation,
-  storage) aren't implemented. See [ROADMAP.md](ROADMAP.md) for what's built,
-  what's planned, and what's deliberately deferred.
+- Browser capability commands beyond Http/Storage (focus, clipboard,
+  navigation, files) aren't implemented. See [ROADMAP.md](ROADMAP.md) for
+  what's built, what's planned, and what's deliberately deferred.

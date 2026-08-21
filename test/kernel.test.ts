@@ -66,7 +66,7 @@ test("start() dispatches Initialize with the protocol version and applies the in
   await withDom(`<p data-text="statusText"></p>`, async (document) => {
     await new BrowserKernel(transport, document).start();
     assert.equal(transport.calls.length, 1);
-    assert.deepEqual(transport.calls[0], { kind: "Initialize", protocolVersion: 1, capabilities: ["Http"] });
+    assert.deepEqual(transport.calls[0], { kind: "Initialize", protocolVersion: 1, capabilities: ["Http", "Storage"] });
     assert.equal(document.querySelector("p")!.textContent, "ready");
   });
 });
@@ -340,6 +340,69 @@ test("a response that fails to decode reports Failure with reason invalid-respon
   }));
 });
 
+test("a PUT effect with headers and a body reaches fetch with all three, headers merged over the default accept", async () => {
+  const correlationId = withCorrelation("c1");
+  const transport = new ScriptedTransport((message) => {
+    if (message.kind === "Initialize") {
+      return respond({
+        effects: [{
+          kind: "Http",
+          correlationId,
+          method: "PUT",
+          url: "/documents/42",
+          headers: { authorization: "token secret-abc", accept: "application/vnd.github+json" },
+          body: JSON.stringify({ content: "hello", sha: "abc123" }),
+          timeoutMs: 1000,
+        }],
+      });
+    }
+    return respond();
+  });
+  let captured;
+  const fetchImpl = (async (url, init) => {
+    captured = { url, init };
+    return { status: 200, json: async () => ({ ok: true }) };
+  }) as typeof fetch;
+  await withFetch(fetchImpl, () => withDom(`<div></div>`, async (document) => {
+    await new BrowserKernel(transport, document).start();
+    assert.equal(captured.url, "/documents/42");
+    assert.equal(captured.init.method, "PUT");
+    assert.equal(captured.init.body, JSON.stringify({ content: "hello", sha: "abc123" }));
+    assert.deepEqual(captured.init.headers, { accept: "application/vnd.github+json", authorization: "token secret-abc" });
+  }));
+});
+
+test("a GET effect with no body omits the body from the fetch call entirely", async () => {
+  const correlationId = withCorrelation("c1");
+  const transport = new ScriptedTransport((message) => {
+    if (message.kind === "Initialize") return respond({ effects: [{ kind: "Http", correlationId, method: "GET", url: "/x", timeoutMs: 1000 }] });
+    return respond();
+  });
+  let captured;
+  const fetchImpl = (async (url, init) => { captured = init; return { status: 200, json: async () => ({}) }; }) as typeof fetch;
+  await withFetch(fetchImpl, () => withDom(`<div></div>`, async (document) => {
+    await new BrowserKernel(transport, document).start();
+    assert.equal("body" in captured, false);
+  }));
+});
+
+test("a diagnostics sink never receives request headers or body — only correlationId and timing", async () => {
+  const { sink, events } = collectDiagnostics();
+  const correlationId = withCorrelation("c1");
+  const transport = new ScriptedTransport((message) => {
+    if (message.kind === "Initialize") {
+      return respond({ effects: [{ kind: "Http", correlationId, method: "POST", url: "/x", headers: { authorization: "token secret-abc" }, body: "top secret payload", timeoutMs: 1000 }] });
+    }
+    return respond();
+  });
+  const fetchImpl = (async () => ({ status: 200, json: async () => ({}) })) as typeof fetch;
+  await withFetch(fetchImpl, () => withDom(`<div></div>`, async (document) => {
+    await new BrowserKernel(transport, document, sink).start();
+    const serialized = JSON.stringify(events);
+    assert.equal(serialized.includes("secret"), false);
+  }));
+});
+
 test("a timeout always reports OutcomeUnknown, never a confident Failure", async () => {
   const correlationId = withCorrelation("c1");
   const transport = new ScriptedTransport((message) => {
@@ -429,5 +492,93 @@ test("a malformed projection is reported via diagnostics instead of throwing, an
     assert.equal(events[0]?.kind === "BridgeError" && events[0].phase, "projection");
     // The malformed view must not be treated as a green light to run its effects.
     assert.equal(transport.calls.some((call) => call.kind === "EffectResult"), false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Storage effect (get / set / remove)
+// ---------------------------------------------------------------------------
+
+test("a Storage set then get round-trips the same value", async () => {
+  const key = "kernel-test-round-trip";
+  const setId = withCorrelation("set-1");
+  const getId = withCorrelation("get-1");
+  const results = [];
+  const transport = new ScriptedTransport((message) => {
+    if (message.kind === "Initialize") return respond({ effects: [{ kind: "Storage", correlationId: setId, operation: "set", key, value: "hello" }] });
+    if (message.kind === "EffectResult") {
+      results.push(message.result);
+      if (message.result.correlationId === setId) return respond({ effects: [{ kind: "Storage", correlationId: getId, operation: "get", key }] });
+    }
+    return respond();
+  });
+  await withDom(`<div></div>`, async (document) => {
+    await new BrowserKernel(transport, document).start();
+    assert.deepEqual(results[0], { kind: "StorageResult", correlationId: setId, outcome: { kind: "Success", value: null } });
+    assert.deepEqual(results[1], { kind: "StorageResult", correlationId: getId, outcome: { kind: "Success", value: "hello" } });
+    assert.equal(window.localStorage.getItem(key), "hello");
+  });
+});
+
+test("a Storage remove then get reports absence as value: null, not a failure", async () => {
+  const key = "kernel-test-removed";
+  const removeId = withCorrelation("remove-1");
+  const getId = withCorrelation("get-1");
+  const results = [];
+  const transport = new ScriptedTransport((message) => {
+    if (message.kind === "Initialize") return respond({ effects: [{ kind: "Storage", correlationId: removeId, operation: "remove", key }] });
+    if (message.kind === "EffectResult") {
+      results.push(message.result);
+      if (message.result.correlationId === removeId) return respond({ effects: [{ kind: "Storage", correlationId: getId, operation: "get", key }] });
+    }
+    return respond();
+  });
+  await withDom(`<div></div>`, async (document) => {
+    window.localStorage.setItem(key, "will be removed");
+    await new BrowserKernel(transport, document).start();
+    assert.deepEqual(results.at(-1), { kind: "StorageResult", correlationId: getId, outcome: { kind: "Success", value: null } });
+  });
+});
+
+test("a Storage failure (e.g. quota exceeded) is classified, not thrown", async () => {
+  const correlationId = withCorrelation("c1");
+  const transport = new ScriptedTransport((message) => {
+    if (message.kind === "Initialize") return respond({ effects: [{ kind: "Storage", correlationId, operation: "set", key: "k", value: "v" }] });
+    return respond();
+  });
+  await withDom(`<div></div>`, async (document) => {
+    // localStorage supports direct key assignment (localStorage.foo = "bar"),
+    // so jsdom proxies property *writes* on the instance through to storage
+    // keys rather than letting them shadow real methods — patch the
+    // prototype method instead, which is a plain, writable data property.
+    const proto = Object.getPrototypeOf(window.localStorage);
+    const realSetItem = proto.setItem;
+    proto.setItem = () => { throw new window.DOMException("quota exceeded", "QuotaExceededError"); };
+    try {
+      await assert.doesNotReject(new BrowserKernel(transport, document).start());
+    } finally {
+      proto.setItem = realSetItem;
+    }
+    const result = transport.calls.at(-1);
+    assert.deepEqual(result?.kind === "EffectResult" && result.result.outcome, { kind: "Failure", reason: "quota-exceeded" });
+  });
+});
+
+test("a cancellation naming an already-completed Storage effect is a harmless no-op", async () => {
+  const correlationId = withCorrelation("c1");
+  const transport = new ScriptedTransport((message) => {
+    if (message.kind === "Initialize") return respond({ effects: [{ kind: "Storage", correlationId, operation: "get", key: "absent" }] });
+    if (message.kind === "Event" && message.event.name === "cancelStale") return respond({ cancellations: [correlationId] });
+    return respond();
+  });
+  await withDom(`<button data-event="cancelStale"></button>`, async (document) => {
+    await new BrowserKernel(transport, document).start();
+    // By now the Storage effect has already completed synchronously and its
+    // correlationId was never registered in #controllers (there is nothing
+    // async to abort) — naming it in a later cancellation must not throw.
+    await assert.doesNotReject((async () => {
+      document.querySelector("button").click();
+      await new Promise((resolve) => { setTimeout(resolve, 50); });
+    })());
   });
 });

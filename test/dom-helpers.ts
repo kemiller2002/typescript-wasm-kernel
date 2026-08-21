@@ -13,6 +13,7 @@ const DOM_GLOBALS = [
   "HTMLTextAreaElement",
   "HTMLFormElement",
   "HTMLTemplateElement",
+  "DOMException",
 ] as const;
 
 type Globals = Record<string, unknown>;

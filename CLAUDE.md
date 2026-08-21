@@ -52,7 +52,7 @@ Invariants:                 (what must always remain true?)
 Capabilities:                (what can the UI do in each state — projected, not reconstructed by the DOM)
 Inputs:                     (SemanticEvent shape — name/key/value)
 Outputs/projections:        (ViewState keys the engine will produce)
-External effects:           (EffectRequest — and all four EffectOutcome variants: Success/Failure/Cancelled/OutcomeUnknown)
+External effects:           (EffectRequest — Http: all four EffectOutcome variants, Success/Failure/Cancelled/OutcomeUnknown; Storage: StorageOutcome's two, Success/Failure — no OutcomeUnknown, a single localStorage call is atomic)
 Browser responsibilities:   (what's genuinely new data-* wiring vs. reuse of existing primitives)
 Kernel responsibilities:    (should almost always be "none — existing primitives cover it")
 Engine responsibilities:    (state, transition, projection)
@@ -67,13 +67,14 @@ code, not after.
 ## Where things are
 
 - `src/protocol.ts` — the stable engine↔kernel contract: `SemanticEvent`,
-  `ViewState`, `EffectRequest`/`EffectResult`/`EffectOutcome`,
+  `ViewState`, `EffectRequest`/`EffectResult`/`EffectOutcome`/`StorageOutcome`,
   `EngineTransport`. Read this file first; everything else is built on it.
 - `src/kernel/browser-kernel.ts` — the generic declarative bridge. Binds
   `data-event`/`data-text`/`data-bind-<attr>`/`data-if`/`data-each`, executes
-  HTTP effects, funnels every engine round-trip through one error-boundary
-  chokepoint (`#send`). It does not know what any event name or view key
-  means.
+  Http effects (any method, caller headers/body) and Storage effects
+  (`localStorage` get/set/remove), funnels every engine round-trip through
+  one error-boundary chokepoint (`#send`). It does not know what any event
+  name or view key means.
 - `src/kernel/diagnostics.ts` — injectable `DiagnosticsSink`, bridge-only
   concern (never engine/view state).
 - `src/engine/domain.ts` — the one reference feature's authoritative state,
