@@ -1,6 +1,6 @@
 {
   "name": "@echelon-foundry/typescript-wasm-kernel",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "A dependency-free TypeScript browser kernel with a stable engine boundary for WebAssembly applications.",
   "license": "MIT",
   "type": "module",
