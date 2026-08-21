@@ -4,6 +4,8 @@ A dependency-minimal reference implementation of the specifications in `prompts/
 JavaScript/TypeScript in `src/kernel/` owns browser mechanism; `src/engine/` owns
 typed application semantics behind the stable protocol in `src/protocol.ts`.
 
+Contributing (including AI agents): start with [CLAUDE.md](CLAUDE.md).
+
 ## Install
 
 ```sh

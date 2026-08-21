@@ -1,3 +1,12 @@
+# Machine-checked subset: scripts/check-architecture.ts mechanically verifies
+# browser_interop.forbidden_modules and dynamic_types (as a blanket ban on the
+# words "any"/"dynamic" anywhere under src/engine — not module-path-scoped,
+# despite dynamic_types.allowed_modules below naming one). Everything else in
+# this file (state.*, effects.representation, capabilities.ambient_authority)
+# is enforced by TypeScript's own compiler (exhaustive switches + assertNever)
+# and by code review, not by the checker script. Don't take a claim here as
+# "mechanically enforced" unless docs/ROADMAP.md's SHOULD-NOT-CONTAIN table
+# says so explicitly.
 architecture:
   authoritative_state:
     owner: engine/domain
@@ -6,10 +15,10 @@ architecture:
     allowed_modules: [kernel]
     forbidden_modules: [engine]
   dynamic_types:
-    allowed_modules: [kernel/boundary]
+    allowed_modules: [kernel]
   effects:
     representation: explicit
-    external_outcomes: [success, failure, outcome_unknown]
+    external_outcomes: [success, failure, cancelled, outcome_unknown]
   capabilities:
     ambient_authority: forbidden
   state:
