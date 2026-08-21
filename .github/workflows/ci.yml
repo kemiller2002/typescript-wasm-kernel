@@ -1,8 +1,14 @@
 name: CI
 
+concurrency:
+  # Same key for a branch's push event and its PR's synchronize event (the
+  # PR event's own sha is a synthetic merge commit, so use its head sha
+  # instead) — this cancels the redundant duplicate rather than running both.
+  group: ci-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
 on:
   push:
-    branches: [main]
   pull_request:
 
 permissions:
